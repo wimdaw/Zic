@@ -23,7 +23,7 @@ import 'ui_settings.dart';
 
 /// Keep in sync with pubspec.yaml `version`. A const (not PackageInfo) so
 /// the blocked card can show it without any platform call.
-const appDisplayVersion = '1.0.24';
+const appDisplayVersion = '1.0.25';
 
 /// Home: the device list with live native status. Tap a card to open the
 /// native task list (or WebView fallback), long-term management via the
@@ -1131,6 +1131,8 @@ class _DevicesPageState extends State<DevicesPage>
     final host = device.params?.source.host ?? '';
     final session = widget.hub.sessionOf(device.id);
     final running = session?.runningTaskCount ?? 0;
+    final errorDetail =
+        session?.status == DeviceStatus.error ? session?.error : null;
     final owner = widget.accounts.byId(device.ownerAccountId);
     final showOwner = widget.accounts.length > 1 && owner != null;
     return Card(
@@ -1181,6 +1183,19 @@ class _DevicesPageState extends State<DevicesPage>
                       style:
                           TextStyle(fontSize: 12, color: ZInk.muted(context)),
                     ),
+                    if (errorDetail != null && errorDetail.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        errorDetail,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          height: 1.3,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 2),
                     if (showOwner) ...[
                       Row(

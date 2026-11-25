@@ -76,9 +76,11 @@ class _ZicAppState extends State<ZicApp> {
 
   /// v4 path: exchange the OWNER account's JWT for a one-shot relay token.
   /// Falls back to the legacy host-keyed JWT for pre-migration data.
+  /// Non-default ports from the pairing link are preserved.
   Future<String?> _resolveRelayToken(
       RemoteConnectionParams params, Device device) async {
     final host = params.source.host;
+    final port = params.source.hasPort ? params.source.port : null;
     if (!params.uriSchemeIsSecure) {
       throw const RelayTokenException(
         'relay-unavailable',
@@ -90,7 +92,7 @@ class _ZicAppState extends State<ZicApp> {
       final jwt = await sessionAuth.jwtForAccount(account.id);
       if (jwt != null && jwt.isNotEmpty) {
         return issueTerminalRelayToken(
-          origin: Uri(scheme: 'https', host: host),
+          origin: Uri(scheme: 'https', host: host, port: port),
           jwt: jwt,
         );
       }
@@ -98,6 +100,7 @@ class _ZicAppState extends State<ZicApp> {
     return issueTerminalRelayTokenForHost(
       host: host,
       secure: params.uriSchemeIsSecure,
+      port: port,
     );
   }
   late final MessageScheduler _scheduler = MessageScheduler(

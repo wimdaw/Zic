@@ -56,9 +56,9 @@ Future<String> issueTerminalRelayToken({
     }
     final token = parseRelayTokenResponse(response.body);
     if (token == null) {
-      throw const RelayTokenException(
+      throw RelayTokenException(
         'relay-unavailable',
-        'Relay token response was not usable.',
+        'Relay token response was not usable (HTTP ${response.statusCode}).',
       );
     }
     return token;
@@ -73,9 +73,12 @@ Future<String> issueTerminalRelayToken({
 
 /// Reads the stored ZCode JWT and exchanges it for a terminal relay token.
 /// Returns null when this host has no JWT yet (the UI should offer login).
+/// [port] keeps non-default pairing hosts (e.g. `https://host:8443/...`)
+/// pointing at the port the desktop actually listens on.
 Future<String?> issueTerminalRelayTokenForHost({
   required String host,
   required bool secure,
+  int? port,
   SessionAuth? auth,
   http.Client? client,
 }) async {
@@ -88,7 +91,7 @@ Future<String?> issueTerminalRelayTokenForHost({
   final jwt = await (auth ?? sessionAuth).jwtFor(host);
   if (jwt == null || jwt.isEmpty) return null;
   return issueTerminalRelayToken(
-    origin: Uri(scheme: 'https', host: host),
+    origin: Uri(scheme: 'https', host: host, port: port),
     jwt: jwt,
     client: client,
   );
