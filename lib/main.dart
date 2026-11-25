@@ -51,12 +51,15 @@ class _ZicAppState extends State<ZicApp> {
     relayTokenProvider: (params, device) => _resolveRelayToken(params, device),
   );
 
-  /// The device's owning account; a device saved before multi-user (or one
-  /// whose account was removed) falls back to the single account on its
-  /// host, then to the legacy host-keyed login.
+  /// The device's owning account, but ONLY when that account belongs to
+  /// the device's host — a JWT is host-scoped, so a wrong-host owner would
+  /// 401 the token mint forever. Falls back to any account on the device's
+  /// host; null means the legacy host-keyed login (pre-multi-user data).
   ZicAccount? _resolveAccount(RemoteConnectionParams params, Device device) {
-    return _accounts.byId(device.ownerAccountId) ??
-        _accounts.byHost(params.source.host);
+    final host = params.source.host;
+    final owner = _accounts.byId(device.ownerAccountId);
+    if (owner != null && owner.host == host) return owner;
+    return _accounts.byHost(host);
   }
 
   /// v3 legacy path: handshake headers from the owner account's cookie.

@@ -23,7 +23,7 @@ import 'ui_settings.dart';
 
 /// Keep in sync with pubspec.yaml `version`. A const (not PackageInfo) so
 /// the blocked card can show it without any platform call.
-const appDisplayVersion = '1.0.23';
+const appDisplayVersion = '1.0.24';
 
 /// Home: the device list with live native status. Tap a card to open the
 /// native task list (or WebView fallback), long-term management via the
@@ -850,20 +850,20 @@ class _DevicesPageState extends State<DevicesPage>
                 final owner = loggedIn ??
                     widget.accounts.byHost(host) ??
                     widget.accounts.current;
-                // Claim ownerless devices on this host for the account
-                // that just signed in.
+                // Claim devices on this host that have no owner OR an owner
+                // from a different host (a wrong-host JWT can never mint
+                // this host's relay token).
                 for (final d in widget.store.devices) {
-                  if (d.ownerAccountId == null &&
-                      owner != null &&
-                      d.params?.source.host == host) {
+                  if (d.params?.source.host != host || owner == null) continue;
+                  final currentOwner = widget.accounts.byId(d.ownerAccountId);
+                  if (currentOwner == null || currentOwner.host != host) {
                     await widget.store.assignOwner(d.id, owner.id);
                   }
                 }
                 for (final d in devices) {
                   final owns = owner != null &&
                       (d.ownerAccountId == owner.id ||
-                          (d.ownerAccountId == null &&
-                              d.params?.source.host == host));
+                          d.params?.source.host == host);
                   if (owns) widget.hub.sessionOf(d.id)?.reconnect();
                 }
               },

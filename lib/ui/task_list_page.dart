@@ -2245,11 +2245,15 @@ class _TaskListPageState extends State<TaskListPage> {
               loggedIn = await accounts.upsertFromLogin(host: host, jwt: jwt),
     );
     if (!ok || !mounted) return;
-    if (accounts != null && widget.device.ownerAccountId == null) {
-      final owner =
-          loggedIn ?? accounts.byHost(host) ?? accounts.current;
-      if (owner != null) {
-        await widget.store.assignOwner(widget.device.id, owner.id);
+    if (accounts != null) {
+      final currentOwner = accounts.byId(widget.device.ownerAccountId);
+      // Claim the device when it has no owner or an owner from another
+      // host (that JWT can never mint this host's relay token).
+      if (currentOwner == null || currentOwner.host != host) {
+        final owner = loggedIn ?? accounts.byHost(host);
+        if (owner != null) {
+          await widget.store.assignOwner(widget.device.id, owner.id);
+        }
       }
     }
     final session = _session;
