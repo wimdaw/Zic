@@ -23,7 +23,7 @@ import 'ui_settings.dart';
 
 /// Keep in sync with pubspec.yaml `version`. A const (not PackageInfo) so
 /// the blocked card can show it without any platform call.
-const appDisplayVersion = '1.0.22';
+const appDisplayVersion = '1.0.23';
 
 /// Home: the device list with live native status. Tap a card to open the
 /// native task list (or WebView fallback), long-term management via the
@@ -1350,9 +1350,22 @@ class _DevicesPageState extends State<DevicesPage>
           : tr(context, 'status.online');
     }
     if (session.status == DeviceStatus.error) {
-      return session.kicked
-          ? tr(context, 'status.kicked')
-          : tr(context, 'status.error');
+      if (session.kicked) return tr(context, 'status.kicked');
+      // Surface WHY the link is down instead of the generic fallback copy.
+      final key = switch (session.failureReason) {
+        'auth-required' ||
+        'session-expired' ||
+        'invalid-mobile-connection' =>
+          'status.err.auth',
+        'desktop-disconnected' => 'status.err.desktop',
+        'relay-unavailable' => 'status.err.relay',
+        'workspace-closed' || 'session-not-found' => 'status.err.session',
+        'desktop-bootstrap-timeout' ||
+        'connection-recovery-timeout' =>
+          'status.err.timeout',
+        _ => 'status.error',
+      };
+      return tr(context, key);
     }
     return tr(context, 'status.connecting');
   }

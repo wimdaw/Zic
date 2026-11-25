@@ -309,7 +309,17 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                   subtitle: Text(
-                      '${account.host} · ${_loginStates[account.id] == true ? tr(context, 'auth.logged-in') : tr(context, 'auth.not-logged-in')}'),
+                    [
+                      account.host,
+                      if (account.identity != null && account.identity!.isNotEmpty)
+                        account.identity!,
+                      _loginStates[account.id] == true
+                          ? tr(context, 'auth.logged-in')
+                          : tr(context, 'auth.not-logged-in'),
+                    ].join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   trailing: PopupMenuButton<String>(
                     onSelected: (v) {
                       if (v == 'current') {

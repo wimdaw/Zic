@@ -10,11 +10,11 @@ import 'package:zic/state/device_store.dart';
 
 /// Three-segment base64url token (shape-valid, unsigned — fine for the
 /// identity parser and storage tests; nothing here verifies signatures).
-String fakeJwt({String? sub, String? name}) {
+String fakeJwt({String? sub, String? name, Map<String, Object?>? extra}) {
   String enc(Map<String, Object?> m) =>
       base64Url.encode(utf8.encode(jsonEncode(m))).replaceAll('=', '');
   return '${enc({'alg': 'HS256', 'typ': 'JWT'})}.'
-      '${enc({'sub': sub, 'name': name})}.sig';
+      '${enc({'sub': sub, 'name': name, ...?extra})}.sig';
 }
 
 void main() {
@@ -30,6 +30,20 @@ void main() {
       final id = jwtIdentity(fakeJwt(sub: 'u-123', name: '阿明'));
       expect(id.subject, 'u-123');
       expect(id.label, '阿明');
+      expect(id.identity, '阿明');
+    });
+
+    test('identity prefers email, then username, then a short subject', () {
+      expect(
+        jwtIdentity(fakeJwt(
+                sub: 'u-1', name: '阿明', extra: {'email': 'a@b.com'}))
+            .identity,
+        'a@b.com',
+      );
+      expect(
+        jwtIdentity(fakeJwt(sub: 'a-very-long-subject-uuid-0001')).identity,
+        '…uid-0001', // last 8 chars, ellipsis-prefixed
+      );
     });
 
     test('tolerates junk input', () {

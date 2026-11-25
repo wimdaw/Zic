@@ -26,6 +26,10 @@ class ZicAccount {
 
   /// Display name (JWT name/email claim, else a fallback).
   String label;
+
+  /// Account identity shown in the Users list so two accounts on the same
+  /// host are distinguishable (email/username claim, else a short subject).
+  String? identity;
   final int createdAt;
 
   ZicAccount({
@@ -33,6 +37,7 @@ class ZicAccount {
     required this.host,
     this.subject,
     required this.label,
+    this.identity,
     required this.createdAt,
   });
 
@@ -41,6 +46,7 @@ class ZicAccount {
         'host': host,
         if (subject != null) 'subject': subject,
         'label': label,
+        if (identity != null) 'identity': identity,
         'createdAt': createdAt,
       };
 
@@ -49,6 +55,7 @@ class ZicAccount {
         host: j['host'] as String? ?? 'zcode.z.ai',
         subject: j['subject'] as String?,
         label: j['label'] as String? ?? '默认用户',
+        identity: j['identity'] as String?,
         createdAt: j['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch,
       );
 }
@@ -138,6 +145,7 @@ class AccountStore extends ChangeNotifier {
           host: host,
           subject: identity.subject,
           label: identity.label ?? '默认用户',
+          identity: identity.identity,
           createdAt: DateTime.now().millisecondsSinceEpoch,
         );
         _accounts.add(account);
@@ -200,12 +208,16 @@ class AccountStore extends ChangeNotifier {
         host: host,
         subject: identity.subject,
         label: identity.label ?? '用户${_accounts.length + 1}',
+        identity: identity.identity,
         createdAt: DateTime.now().millisecondsSinceEpoch,
       );
       _accounts.add(account);
     }
     if (identity.label != null && identity.label!.isNotEmpty) {
       account.label = identity.label!;
+    }
+    if (identity.identity != null && identity.identity!.isNotEmpty) {
+      account.identity = identity.identity;
     }
     await sessionAuth.saveJwtForAccount(account.id, jwt);
     if (cookie != null && cookie.isNotEmpty) {
@@ -253,7 +265,12 @@ class AccountStore extends ChangeNotifier {
 class JwtIdentity {
   final String? subject;
   final String? label;
-  const JwtIdentity({this.subject, this.label});
+
+  /// Human-readable account identity for the Users list: an email/phone/
+  /// username claim when present, else a short form of the subject so two
+  /// accounts on one host still look different.
+  final String? identity;
+  const JwtIdentity({this.subject, this.label, this.identity});
 }
 
 /// Extracts the stable subject (`sub`/`uid`) and a display label
@@ -272,14 +289,27 @@ JwtIdentity jwtIdentity(String jwt) {
         str(decoded['uid']) ??
         str(decoded['user_id']) ??
         str(decoded['jti']);
+    final email = str(decoded['email']);
+    final username = str(decoded['username']) ??
+        str(decoded['nickname']) ??
+        str(decoded['name']);
+    final phone = str(decoded['phone']) ?? str(decoded['phone_number']);
     final label = str(decoded['name']) ??
         str(decoded['nickname']) ??
         str(decoded['email']) ??
         str(decoded['username']);
-    return JwtIdentity(subject: subject, label: label);
+    final identity = email ?? username ?? phone ?? _shortSubject(subject);
+    return JwtIdentity(subject: subject, label: label, identity: identity);
   } catch (_) {
     return const JwtIdentity();
   }
+}
+
+/// `u-6f3a1b2c-...` → `…6f3a1b2c` — enough to tell accounts apart.
+String? _shortSubject(String? subject) {
+  if (subject == null || subject.isEmpty) return null;
+  if (subject.length <= 12) return subject;
+  return '…${subject.substring(subject.length - 8)}';
 }
 
 /// One-time upgrade: devices saved before multi-user have no owner. Attach
