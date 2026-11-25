@@ -58,7 +58,16 @@ class SessionAuth {
   final Map<String, String> _memory = {};
   final Map<String, String> _jwtMemory = {};
 
+  /// Multi-user layers, keyed by account id instead of host. The legacy
+  /// host-keyed keys below stay readable for migration and as a dial-time
+  /// fallback for devices that predate owner assignment.
+  final Map<String, String> _acctJwtMemory = {};
+  final Map<String, String> _acctCookieMemory = {};
+
   static const _jwtPrefix = 'zic.auth.jwt.';
+  static const _acctJwtPrefix = 'zic.auth.acct.jwt.';
+  static const _acctFlagPrefix = 'zic.auth.acct.flag.';
+  static const _acctCookiePrefix = 'zic.auth.acct.cookie.';
 
   Future<Map<String, String>> handshakeHeaders(Uri wsUri) async {
     if (wsUri.scheme != 'wss' && wsUri.scheme != 'https') return const {};
@@ -134,6 +143,117 @@ class SessionAuth {
     }
   }
 
+  /// Account-scoped JWT (multi-user). Same memory→store layering as
+  /// [jwtFor]; the key is the account id, so two accounts on one host no
+  /// longer overwrite each other.
+  Future<String?> jwtForAccount(String accountId) async {
+    final remembered = _acctJwtMemory[accountId];
+    if (remembered != null && remembered.isNotEmpty) return remembered;
+    try {
+      final stored =
+          await AppKv.instance.getString('$_acctJwtPrefix$accountId');
+      if (stored != null && stored.isNotEmpty && looksLikeJwt(stored)) {
+        _acctJwtMemory[accountId] = stored;
+        return stored;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> saveJwtForAccount(String accountId, String jwt) async {
+    final normalized = normalizeStoredJwt(jwt);
+    if (!looksLikeJwt(normalized)) {
+      throw ArgumentError('refusing to store a value that is not a JWT');
+    }
+    _acctJwtMemory[accountId] = normalized;
+    try {
+      await AppKv.instance.setString('$_acctJwtPrefix$accountId', normalized);
+      await AppKv.instance.setBool('$_acctFlagPrefix$accountId', true);
+    } catch (_) {
+      // Degraded storage: the memory layer still carries this session.
+    }
+  }
+
+  Future<bool> hasSessionForAccount(String accountId) async {
+    final jwt = await jwtForAccount(accountId);
+    return jwt != null && jwt.isNotEmpty;
+  }
+
+  /// Account-scoped legacy-handshake cookie (v3 links owned by one account).
+  Future<String?> cookieForAccount(String accountId) async {
+    final remembered = _acctCookieMemory[accountId];
+    if (remembered != null && remembered.isNotEmpty) return remembered;
+    try {
+      final stored =
+          await AppKv.instance.getString('$_acctCookiePrefix$accountId');
+      if (stored != null && stored.isNotEmpty) return stored;
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> saveCookieForAccount(String accountId, String cookieHeader) async {
+    _acctCookieMemory[accountId] = cookieHeader;
+    try {
+      await AppKv.instance.setString(
+          '$_acctCookiePrefix$accountId', cookieHeader);
+      await AppKv.instance.setBool('$_acctFlagPrefix$accountId', true);
+    } catch (_) {
+      // Degraded storage: the memory layer still carries this session.
+    }
+  }
+
+  /// v3 handshake headers from an account-scoped cookie.
+  Future<Map<String, String>> handshakeHeadersForAccount(
+      String accountId, Uri wsUri) async {
+    if (wsUri.scheme != 'wss' && wsUri.scheme != 'https') return const {};
+    final cookie = await cookieForAccount(accountId);
+    if (cookie == null || cookie.isEmpty) return const {};
+    return {
+      'Cookie': cookie,
+      'Origin': 'https://${wsUri.host}',
+      'User-Agent': browserUserAgent,
+    };
+  }
+
+  /// Drops ONE account's credentials (per-account sign-out). The account
+  /// record and its devices are untouched — re-login restores the session.
+  Future<void> clearAccount(String accountId) async {
+    _acctJwtMemory.remove(accountId);
+    _acctCookieMemory.remove(accountId);
+    try {
+      final keys = (await AppKv.instance.getKeys()).where((k) =>
+          k.startsWith('$_acctJwtPrefix$accountId') ||
+          k.startsWith('$_acctFlagPrefix$accountId') ||
+          k.startsWith('$_acctCookiePrefix$accountId'));
+      for (final k in keys) {
+        await AppKv.instance.remove(k);
+      }
+    } catch (_) {}
+  }
+
+  /// Legacy host-keyed hosts that carry a stored JWT (migration source).
+  Future<List<String>> legacyJwtHosts() async {
+    try {
+      final keys = await AppKv.instance.getKeys();
+      return keys
+          .where((k) => k.startsWith(_jwtPrefix))
+          .map((k) => k.substring(_jwtPrefix.length))
+          .where((h) => h.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Legacy host-scoped cookie (migration source).
+  Future<String?> legacyCookieFor(String host) async {
+    try {
+      return await _store.cookieFor(host);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> saveCookies(String host, String cookieHeader) async {
     // Memory layer first: the CURRENT app run must be able to connect even
     // when persistence is unavailable (degraded mode).
@@ -149,12 +269,18 @@ class SessionAuth {
   Future<void> clear() async {
     _memory.clear();
     _jwtMemory.clear();
+    _acctJwtMemory.clear();
+    _acctCookieMemory.clear();
     try {
       await _store.clearAll();
     } catch (_) {}
     try {
-      final keys = (await AppKv.instance.getKeys())
-          .where((k) => k.startsWith(_flagPrefix) || k.startsWith(_jwtPrefix));
+      final keys = (await AppKv.instance.getKeys()).where((k) =>
+          k.startsWith(_flagPrefix) ||
+          k.startsWith(_jwtPrefix) ||
+          k.startsWith(_acctJwtPrefix) ||
+          k.startsWith(_acctFlagPrefix) ||
+          k.startsWith(_acctCookiePrefix));
       for (final k in keys) {
         await AppKv.instance.remove(k);
       }

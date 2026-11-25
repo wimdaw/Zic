@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../design/zic_logo.dart';
 import '../protocol/connection_params.dart';
+import '../state/account_store.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
 import '../state/scheduled_store.dart';
@@ -29,6 +30,7 @@ const appDisplayVersion = '1.0.12';
 /// overflow menu. Supports clipboard offer-to-add, drag-reorder and pin.
 class DevicesPage extends StatefulWidget {
   final DeviceStore store;
+  final AccountStore accounts;
   final ThemeController theme;
   final UiSettings ui;
   final DeviceSessionHub hub;
@@ -36,6 +38,7 @@ class DevicesPage extends StatefulWidget {
   const DevicesPage({
     super.key,
     required this.store,
+    required this.accounts,
     required this.theme,
     required this.ui,
     required this.hub,
@@ -65,6 +68,10 @@ class _DevicesPageState extends State<DevicesPage>
   static const _maxAutoRetries = 5;
   final Stopwatch _loadElapsed = Stopwatch();
   final StartupDiagnostics _diagnostics = StartupDiagnostics();
+
+  /// Active owner filter (null = all devices). Only offered once more than
+  /// one account exists; drag-reorder is disabled while filtered.
+  String? _filterAccountId;
 
   @override
   void initState() {
@@ -200,7 +207,8 @@ class _DevicesPageState extends State<DevicesPage>
           action: SnackBarAction(
             label: tr(context, 'devices.clipboard.add'),
             onPressed: () async {
-              await widget.store.addUrl(text);
+              await widget.store.addUrl(text,
+                  ownerAccountId: widget.accounts.current?.id);
             },
           ),
         ),
@@ -260,7 +268,7 @@ class _DevicesPageState extends State<DevicesPage>
     widget.hub.scheduleResume(device);
   }
 
-  Future<void> _addByUrl() async {
+  Future<void> _addByUrl({String? ownerAccountId}) async {
     final controller = TextEditingController();
     final url = await showDialog<String>(
       context: context,
@@ -289,7 +297,7 @@ class _DevicesPageState extends State<DevicesPage>
       ),
     );
     if (url == null || url.trim().isEmpty) return;
-    final device = await widget.store.addUrl(url);
+    final device = await widget.store.addUrl(url, ownerAccountId: ownerAccountId);
     if (!mounted) return;
     if (device.params == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -298,12 +306,13 @@ class _DevicesPageState extends State<DevicesPage>
     }
   }
 
-  Future<void> _addByScan() async {
+  Future<void> _addByScan({String? ownerAccountId}) async {
     final url = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const QrScanPage()),
     );
     if (url == null || url.trim().isEmpty) return;
-    final device = await widget.store.addUrl(url);
+    final device =
+        await widget.store.addUrl(url, ownerAccountId: ownerAccountId);
     if (!mounted) return;
     if (device.params == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -313,33 +322,52 @@ class _DevicesPageState extends State<DevicesPage>
   }
 
   void _showAddSheet() {
+    final multiAccount = widget.accounts.length > 1;
+    var selectedAccountId = widget.accounts.current?.id;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (c) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
-              title: Text(tr(context, 'devices.add.scan')),
-              subtitle: Text(tr(context, 'devices.add.scanHint')),
-              onTap: () {
-                Navigator.pop(c);
-                _addByScan();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.link),
-              title: Text(tr(context, 'devices.add.paste')),
-              subtitle: Text(tr(context, 'devices.add.pasteHint')),
-              onTap: () {
-                Navigator.pop(c);
-                _addByUrl();
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+        child: StatefulBuilder(
+          builder: (c, setSheetState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (multiAccount)
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(tr(context, 'devices.add.owner')),
+                  trailing: DropdownButton<String>(
+                    value: selectedAccountId,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final a in widget.accounts.accounts)
+                        DropdownMenuItem(value: a.id, child: Text(a.label)),
+                    ],
+                    onChanged: (v) =>
+                        setSheetState(() => selectedAccountId = v),
+                  ),
+                ),
+              ListTile(
+                leading: const Icon(Icons.qr_code_scanner),
+                title: Text(tr(context, 'devices.add.scan')),
+                subtitle: Text(tr(context, 'devices.add.scanHint')),
+                onTap: () {
+                  Navigator.pop(c);
+                  _addByScan(ownerAccountId: selectedAccountId);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.link),
+                title: Text(tr(context, 'devices.add.paste')),
+                subtitle: Text(tr(context, 'devices.add.pasteHint')),
+                onTap: () {
+                  Navigator.pop(c);
+                  _addByUrl(ownerAccountId: selectedAccountId);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -465,9 +493,17 @@ class _DevicesPageState extends State<DevicesPage>
       body: SafeArea(
         bottom: false,
         child: AnimatedBuilder(
-          animation: Listenable.merge([widget.store, widget.hub, widget.ui]),
+          animation: Listenable.merge(
+              [widget.store, widget.hub, widget.ui, widget.accounts]),
           builder: (context, _) {
             final devices = widget.store.devices;
+            final multiAccount = widget.accounts.length > 1;
+            final filtered = multiAccount && _filterAccountId != null;
+            final visible = filtered
+                ? devices
+                    .where((d) => d.ownerAccountId == _filterAccountId)
+                    .toList()
+                : devices;
             // Entry is UNCONDITIONAL: the shell always renders and the
             // device list streams in. A storage layer that never answers
             // costs the list, never the app (verified hard requirement —
@@ -476,6 +512,7 @@ class _DevicesPageState extends State<DevicesPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _header(context, devices),
+                if (multiAccount) _accountFilterRow(context),
                 if (!widget.store.loaded && !_loadTimedOut) ...[
                   const SizedBox(height: 8),
                   Padding(
@@ -495,12 +532,12 @@ class _DevicesPageState extends State<DevicesPage>
                   const SizedBox(height: 4),
                   _degradedBanner(context),
                 ],
-                if (_needsLogin(devices)) ...[
+                if (_needsLogin(visible)) ...[
                   const SizedBox(height: 4),
-                  _authNotice(context, devices),
+                  _authNotice(context, visible),
                 ],
                 Expanded(
-                  child: devices.isEmpty
+                  child: visible.isEmpty
                       ? ListView(
                           padding: const EdgeInsets.symmetric(horizontal: 24),
                           children: [_emptyState(context)],
@@ -508,39 +545,66 @@ class _DevicesPageState extends State<DevicesPage>
                       : RefreshIndicator(
                           onRefresh: () async => _syncConnections(),
                           edgeOffset: 8,
-                          child: ReorderableListView.builder(
-                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                            itemCount: devices.length + 1,
-                            proxyDecorator: (child, index, animation) {
-                              return AnimatedBuilder(
-                                animation: animation,
-                                builder: (context, _) => Material(
-                                  elevation: 2 + animation.value * 4,
-                                  color: Colors.transparent,
-                                  borderRadius: BorderRadius.circular(18),
-                                  child: child,
+                          // Filtered views drop drag-reorder: the reorder
+                          // indices would not match the stored order.
+                          child: filtered
+                              ? ListView.builder(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                                  itemCount: visible.length + 1,
+                                  itemBuilder: (context, i) {
+                                    if (i == visible.length) {
+                                      return Padding(
+                                        key: const ValueKey('zic-add-tile'),
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: _addTile(context),
+                                      );
+                                    }
+                                    final d = visible[i];
+                                    return Padding(
+                                      key: ValueKey(d.id),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: _deviceCard(d, dragIndex: null),
+                                    );
+                                  },
+                                )
+                              : ReorderableListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      20, 12, 20, 24),
+                                  itemCount: visible.length + 1,
+                                  proxyDecorator: (child, index, animation) {
+                                    return AnimatedBuilder(
+                                      animation: animation,
+                                      builder: (context, _) => Material(
+                                        elevation: 2 + animation.value * 4,
+                                        color: Colors.transparent,
+                                        borderRadius:
+                                            BorderRadius.circular(18),
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+                                  onReorderItem: (oldIndex, newIndex) {
+                                    widget.store.reorder(oldIndex, newIndex);
+                                  },
+                                  itemBuilder: (context, i) {
+                                    if (i == visible.length) {
+                                      return Padding(
+                                        key: const ValueKey('zic-add-tile'),
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: _addTile(context),
+                                      );
+                                    }
+                                    final d = visible[i];
+                                    return Padding(
+                                      key: ValueKey(d.id),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: _deviceCard(d, dragIndex: i),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
-                            onReorderItem: (oldIndex, newIndex) {
-                              widget.store.reorder(oldIndex, newIndex);
-                            },
-                            itemBuilder: (context, i) {
-                              if (i == devices.length) {
-                                return Padding(
-                                  key: const ValueKey('zic-add-tile'),
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: _addTile(context),
-                                );
-                              }
-                              final d = devices[i];
-                              return Padding(
-                                key: ValueKey(d.id),
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: _deviceCard(d),
-                              );
-                            },
-                          ),
                         ),
                 ),
               ],
@@ -617,6 +681,7 @@ class _DevicesPageState extends State<DevicesPage>
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => SettingsPage(
                 store: widget.store,
+                accounts: widget.accounts,
                 theme: widget.theme,
                 ui: widget.ui,
               ),
@@ -640,6 +705,42 @@ class _DevicesPageState extends State<DevicesPage>
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// Owner filter chips (only shown with multiple accounts): 全部 + one
+  /// chip per account. Every device stays visible under 全部 — filtering
+  /// is a view, never a permission.
+  Widget _accountFilterRow(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+      child: SizedBox(
+        height: 34,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                label: Text(tr(context, 'home.filter.all')),
+                selected: _filterAccountId == null,
+                visualDensity: VisualDensity.compact,
+                onSelected: (_) => setState(() => _filterAccountId = null),
+              ),
+            ),
+            for (final a in widget.accounts.accounts)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: FilterChip(
+                  label: Text(a.label),
+                  selected: _filterAccountId == a.id,
+                  visualDensity: VisualDensity.compact,
+                  onSelected: (_) => setState(() => _filterAccountId = a.id),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -683,18 +784,25 @@ class _DevicesPageState extends State<DevicesPage>
     });
   }
 
-  /// Slim sign-in notice for v4 links without a stored login.
+  /// Slim sign-in notice for v4 links without a usable login. Multi-user:
+  /// the captured JWT goes into the blocked device's OWNING account, and
+  /// only that account's devices reconnect afterwards.
   Widget _authNotice(BuildContext context, List<Device> devices) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final host = devices
-        .firstWhere((d) =>
+    final needing = devices
+        .where((d) =>
             d.params != null &&
             d.params!.passHash.isEmpty &&
             (widget.hub.sessionOf(d.id)?.failureReason == 'auth-required' ||
                 widget.hub.sessionOf(d.id) == null))
-        .params!
-        .source
-        .host;
+        .toList();
+    final first = needing.first;
+    final host = first.params!.source.host;
+    final account = widget.accounts.byId(first.ownerAccountId) ??
+        widget.accounts.byHost(host);
+    final text = needing.length > 1
+        ? trP(context, 'home.authNotice.multi', ['${needing.length}'])
+        : tr(context, 'home.authNotice');
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
       child: Container(
@@ -710,7 +818,7 @@ class _DevicesPageState extends State<DevicesPage>
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                tr(context, 'home.authNotice'),
+                text,
                 style: TextStyle(
                   fontSize: 12.5,
                   height: 1.4,
@@ -727,10 +835,23 @@ class _DevicesPageState extends State<DevicesPage>
                 visualDensity: VisualDensity.compact,
               ),
               onPressed: () async {
-                final ok = await runLoginFlowForHost(context, host);
+                final ok = await runLoginFlowForHost(
+                  context,
+                  host,
+                  accountId: account?.id,
+                  onSaveJwt: account == null
+                      ? null
+                      : (jwt) => widget.accounts
+                          .upsertFromLogin(host: host, jwt: jwt),
+                );
                 if (!ok || !mounted) return;
                 for (final d in devices) {
-                  widget.hub.sessionOf(d.id)?.reconnect();
+                  final owns = account != null
+                      ? (d.ownerAccountId == account.id ||
+                          (d.ownerAccountId == null &&
+                              d.params?.source.host == host))
+                      : d.params?.source.host == host;
+                  if (owns) widget.hub.sessionOf(d.id)?.reconnect();
                 }
               },
               child: Text(tr(context, 'auth.login'),
@@ -991,11 +1112,14 @@ class _DevicesPageState extends State<DevicesPage>
   }
 
   /// One device, Zic anatomy: a status ring on the left, the identity
-  /// block in the middle, live counts on the right.
-  Widget _deviceCard(Device device) {
+  /// block in the middle, live counts on the right. [dragIndex] enables
+  /// drag-reorder (null in filtered views).
+  Widget _deviceCard(Device device, {required int? dragIndex}) {
     final host = device.params?.source.host ?? '';
     final session = widget.hub.sessionOf(device.id);
     final running = session?.runningTaskCount ?? 0;
+    final owner = widget.accounts.byId(device.ownerAccountId);
+    final showOwner = widget.accounts.length > 1 && owner != null;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -1004,11 +1128,13 @@ class _DevicesPageState extends State<DevicesPage>
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
-              ReorderableDragStartListener(
-                index:
-                    widget.store.devices.indexWhere((d) => d.id == device.id),
-                child: _statusRing(context, session, device.pinned),
-              ),
+              if (dragIndex != null)
+                ReorderableDragStartListener(
+                  index: dragIndex,
+                  child: _statusRing(context, session, device.pinned),
+                )
+              else
+                _statusRing(context, session, device.pinned),
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
@@ -1043,6 +1169,31 @@ class _DevicesPageState extends State<DevicesPage>
                           TextStyle(fontSize: 12, color: ZInk.muted(context)),
                     ),
                     const SizedBox(height: 2),
+                    if (showOwner) ...[
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: _accountColor(owner.id),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              owner.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 10.5, color: ZInk.soft(context)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                    ],
                     Text(
                       device.lastUsedAt != null
                           ? trP(context, 'devices.lastUsed',
@@ -1191,5 +1342,19 @@ class _DevicesPageState extends State<DevicesPage>
           : tr(context, 'status.error');
     }
     return tr(context, 'status.connecting');
+  }
+
+  /// Stable per-account accent for owner chips/badges (id-hash picked).
+  Color _accountColor(String? accountId) {
+    const palette = [
+      Color(0xFF4C8DFF),
+      Color(0xFFFF8A4C),
+      Color(0xFF9C6BFF),
+      Color(0xFF2FB683),
+      Color(0xFFE15B8E),
+      Color(0xFF5BB8E1),
+    ];
+    if (accountId == null) return palette.first;
+    return palette[accountId.hashCode.abs() % palette.length];
   }
 }

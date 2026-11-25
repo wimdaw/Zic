@@ -22,11 +22,18 @@ Future<bool> runLoginFlow(
 }
 
 /// Same flow, keyed by relay host (settings entry: no device needed).
+///
+/// Multi-user: [onSaveJwt] (or [accountId]) routes the captured JWT into
+/// the owning account instead of the legacy host-keyed slot. When
+/// [onSaveJwt] is given it fully owns persistence; otherwise the JWT goes
+/// to [auth]/[sessionAuth] — account-scoped when [accountId] is set.
 Future<bool> runLoginFlowForHost(
   BuildContext context,
   String host, {
   SessionAuth? auth,
   Uri? initialUrl,
+  String? accountId,
+  Future<void> Function(String jwt)? onSaveJwt,
 }) async {
   final header = await Navigator.of(context).push<String>(
     MaterialPageRoute(
@@ -34,11 +41,18 @@ Future<bool> runLoginFlowForHost(
         host: host,
         initialUrl: initialUrl,
         auth: auth,
+        accountId: accountId,
       ),
     ),
   );
   if (header == null || header.isEmpty) return false;
-  await (auth ?? sessionAuth).saveJwt(host, header);
+  if (onSaveJwt != null) {
+    await onSaveJwt(header);
+  } else if (accountId != null) {
+    await (auth ?? sessionAuth).saveJwtForAccount(accountId, header);
+  } else {
+    await (auth ?? sessionAuth).saveJwt(host, header);
+  }
   return true;
 }
 
@@ -53,6 +67,7 @@ class LoginPage extends StatefulWidget {
     required this.host,
     this.initialUrl,
     this.auth,
+    this.accountId,
   });
 
   /// Relay host the cookies are captured for (e.g. `zcode.z.ai`).
@@ -64,6 +79,9 @@ class LoginPage extends StatefulWidget {
   /// Optional auth service override (tests); defaults to the shared
   /// process-wide [sessionAuth].
   final SessionAuth? auth;
+
+  /// Owning account (multi-user): scopes the login-method preference.
+  final String? accountId;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -88,9 +106,13 @@ class _LoginPageState extends State<LoginPage> {
 ''';
   double _progress = 0;
 
-  /// Selected login method. Persisted per device; BigModel is the default
-  /// (the primary account system for most ZCode users in China).
-  static const _methodPrefKey = 'zic.login.method';
+  /// Selected login method. Persisted per account (the legacy global key
+  /// is the fallback); BigModel is the default (the primary account
+  /// system for most ZCode users in China).
+  static const _methodPrefKeyGlobal = 'zic.login.method';
+  String get _methodPrefKey => widget.accountId == null
+      ? _methodPrefKeyGlobal
+      : '$_methodPrefKeyGlobal.${widget.accountId}';
   String _method = 'bigmodel'; // 'bigmodel' | 'zai' | 'auto'
   InAppWebViewController? _webController;
 
@@ -113,9 +135,13 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadMethodPref() async {
     try {
-      final saved = await AppKv.instance.getString(_methodPrefKey);
+      var saved = await AppKv.instance.getString(_methodPrefKey);
+      if (saved == null && widget.accountId != null) {
+        // Fall back to the legacy global preference.
+        saved = await AppKv.instance.getString(_methodPrefKeyGlobal);
+      }
       if (saved != null && mounted) {
-        setState(() => _method = saved);
+        setState(() => _method = saved!);
       }
     } catch (_) {}
   }

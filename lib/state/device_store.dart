@@ -24,6 +24,10 @@ class Device {
   /// reorder; absent in old backups and back-filled from list index.
   int sortOrder;
 
+  /// Owning account (multi-user). Null on legacy data until the startup
+  /// migration assigns it; the dial path resolves credentials via this id.
+  String? ownerAccountId;
+
   Device({
     required this.id,
     required this.label,
@@ -33,9 +37,15 @@ class Device {
     this.useCount = 0,
     this.pinned = false,
     this.sortOrder = 0,
+    this.ownerAccountId,
   });
 
-  factory Device.fromUrl(String url, {String? label, int sortOrder = 0}) {
+  factory Device.fromUrl(
+    String url, {
+    String? label,
+    int sortOrder = 0,
+    String? ownerAccountId,
+  }) {
     final params = RemoteConnectionParams.parse(url);
     return Device(
       id: generateUuid(),
@@ -47,6 +57,7 @@ class Device {
       url: url.trim(),
       addedAt: DateTime.now().millisecondsSinceEpoch,
       sortOrder: sortOrder,
+      ownerAccountId: ownerAccountId,
     );
   }
 
@@ -73,6 +84,7 @@ class Device {
         if (useCount > 0) 'useCount': useCount,
         if (pinned) 'pinned': true,
         'sortOrder': sortOrder,
+        if (ownerAccountId != null) 'ownerAccountId': ownerAccountId,
       };
 
   factory Device.fromJson(Map<String, dynamic> j) => Device(
@@ -84,6 +96,7 @@ class Device {
         useCount: j['useCount'] as int? ?? 0,
         pinned: j['pinned'] == true,
         sortOrder: j['sortOrder'] as int? ?? 0,
+        ownerAccountId: j['ownerAccountId'] as String?,
       );
 }
 
@@ -221,8 +234,10 @@ class DeviceStore extends ChangeNotifier {
 
   /// Adds a device from a pasted/scanned URL. The same desktop (`sid`)
   /// updates the stored link in place, so a refreshed pairing URL does not
-  /// create a second card and does not drop pin / use count.
-  Future<Device> addUrl(String url, {String? label}) async {
+  /// create a second card and does not drop pin / use count. New devices
+  /// are owned by [ownerAccountId] (the current account); an existing card
+  /// keeps its owner unless one is passed explicitly.
+  Future<Device> addUrl(String url, {String? label, String? ownerAccountId}) async {
     final trimmed = url.trim();
     final parsed = RemoteConnectionParams.parse(trimmed);
     final sid = parsed?.deviceSid;
@@ -230,7 +245,9 @@ class DeviceStore extends ChangeNotifier {
         ? _devices.where((d) => d.url == trimmed).firstOrNull
         : _devices.where((d) => d.params?.deviceSid == sid).firstOrNull;
     if (existing != null) {
-      if (existing.url == trimmed && (label == null || label.trim().isEmpty)) {
+      if (existing.url == trimmed &&
+          (label == null || label.trim().isEmpty) &&
+          (ownerAccountId == null || ownerAccountId == existing.ownerAccountId)) {
         return existing;
       }
       final nextLabel = (label != null && label.trim().isNotEmpty)
@@ -249,6 +266,7 @@ class DeviceStore extends ChangeNotifier {
         useCount: existing.useCount,
         pinned: existing.pinned,
         sortOrder: existing.sortOrder,
+        ownerAccountId: ownerAccountId ?? existing.ownerAccountId,
       );
       if (index >= 0) _devices[index] = updated;
       notifyListeners();
@@ -258,7 +276,8 @@ class DeviceStore extends ChangeNotifier {
     final maxOrder = _devices.isEmpty
         ? -1
         : _devices.map((d) => d.sortOrder).reduce((a, b) => a > b ? a : b);
-    final device = Device.fromUrl(trimmed, label: label, sortOrder: maxOrder + 1);
+    final device = Device.fromUrl(trimmed,
+        label: label, sortOrder: maxOrder + 1, ownerAccountId: ownerAccountId);
     _devices.add(device);
     notifyListeners();
     await _save();
@@ -311,6 +330,31 @@ class DeviceStore extends ChangeNotifier {
     d.useCount += 1;
     notifyListeners();
     await _save();
+  }
+
+  /// Sets one device's owning account (multi-user startup migration).
+  Future<void> assignOwner(String deviceId, String? ownerAccountId) async {
+    final d = _devices.where((d) => d.id == deviceId).firstOrNull;
+    if (d == null || d.ownerAccountId == ownerAccountId) return;
+    d.ownerAccountId = ownerAccountId;
+    notifyListeners();
+    await _save();
+  }
+
+  /// Moves every device owned by [fromAccountId] to [toAccountId] (account
+  /// removal). Returns the number of devices re-homed.
+  Future<int> reassignOwner(String? fromAccountId, String? toAccountId) async {
+    var moved = 0;
+    for (final d in _devices) {
+      if (d.ownerAccountId != fromAccountId) continue;
+      d.ownerAccountId = toAccountId;
+      moved++;
+    }
+    if (moved > 0) {
+      notifyListeners();
+      await _save();
+    }
+    return moved;
   }
 
   /// After a save, the queued disk merge may keep the on-disk id for this sid.
@@ -424,5 +468,6 @@ Device overlayStoredDevice(Device kept, Device newer) {
     useCount: kept.useCount > newer.useCount ? kept.useCount : newer.useCount,
     pinned: kept.pinned || newer.pinned,
     sortOrder: kept.sortOrder,
+    ownerAccountId: kept.ownerAccountId ?? newer.ownerAccountId,
   );
 }

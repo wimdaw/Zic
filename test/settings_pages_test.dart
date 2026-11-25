@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:zic/state/account_store.dart';
 import 'package:zic/state/app_kv.dart';
 import 'package:zic/state/device_store.dart';
 import 'package:zic/ui/about_page.dart';
@@ -36,7 +37,7 @@ void main() {
       final theme = ThemeController();
       final ui = UiSettings();
       await tester.pumpWidget(
-          host(SettingsPage(store: store, theme: theme, ui: ui), ui));
+          host(SettingsPage(store: store, accounts: AccountStore(), theme: theme, ui: ui), ui));
       await tester.pumpAndSettle();
 
       expect(theme.mode, ThemeMode.system); // Zic default: follow the OS
@@ -52,7 +53,7 @@ void main() {
       final theme = ThemeController();
       final ui = UiSettings();
       await tester.pumpWidget(
-          host(SettingsPage(store: store, theme: theme, ui: ui), ui));
+          host(SettingsPage(store: store, accounts: AccountStore(), theme: theme, ui: ui), ui));
       await tester.pumpAndSettle();
 
       expect(ui.nativeListEnabled, isTrue);
@@ -69,7 +70,7 @@ void main() {
       final theme = ThemeController();
       final ui = UiSettings();
       await tester.pumpWidget(
-          host(SettingsPage(store: store, theme: theme, ui: ui), ui));
+          host(SettingsPage(store: store, accounts: AccountStore(), theme: theme, ui: ui), ui));
       await tester.pumpAndSettle();
 
       // Channel rows are visible while the master switch is on (the
@@ -107,7 +108,7 @@ void main() {
       final theme = ThemeController();
       final ui = UiSettings();
       await tester.pumpWidget(
-          host(SettingsPage(store: store, theme: theme, ui: ui), ui));
+          host(SettingsPage(store: store, accounts: AccountStore(), theme: theme, ui: ui), ui));
       await tester.pumpAndSettle();
 
       expect(find.text('外观'), findsOneWidget);

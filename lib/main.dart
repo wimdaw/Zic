@@ -7,6 +7,8 @@ import 'package:home_widget/home_widget.dart';
 import 'auth/relay_token.dart';
 import 'auth/session_auth.dart';
 import 'notifications/notification_service.dart';
+import 'protocol/connection_params.dart';
+import 'state/account_store.dart';
 import 'state/device_session.dart';
 import 'state/device_store.dart';
 import 'state/notification_hub.dart';
@@ -34,6 +36,7 @@ class ZicApp extends StatefulWidget {
 
 class _ZicAppState extends State<ZicApp> {
   final DeviceStore _store = DeviceStore();
+  final AccountStore _accounts = AccountStore();
   final ThemeController _theme = ThemeController();
   final UiSettings _ui = UiSettings();
   final ScheduledStore _scheduled = ScheduledStore();
@@ -42,14 +45,58 @@ class _ZicAppState extends State<ZicApp> {
   late final DeviceSessionHub _hub = DeviceSessionHub(
     nativeListEnabled: () => _ui.nativeListEnabled,
     // v3 links may still attach a captured cookie. v4/v2 links ignore it
-    // and mint a relay token from the stored ZCode JWT instead.
-    relayHeaderProvider: (params) =>
-        sessionAuth.handshakeHeaders(params.relayWsUri),
-    relayTokenProvider: (params) => issueTerminalRelayTokenForHost(
-      host: params.source.host,
-      secure: params.uriSchemeIsSecure,
-    ),
+    // and mint a relay token from the owning account's stored ZCode JWT.
+    relayHeaderProvider: (params, device) =>
+        _resolveHandshakeHeaders(params, device),
+    relayTokenProvider: (params, device) => _resolveRelayToken(params, device),
   );
+
+  /// The device's owning account; a device saved before multi-user (or one
+  /// whose account was removed) falls back to the single account on its
+  /// host, then to the legacy host-keyed login.
+  ZicAccount? _resolveAccount(RemoteConnectionParams params, Device device) {
+    return _accounts.byId(device.ownerAccountId) ??
+        _accounts.byHost(params.source.host);
+  }
+
+  /// v3 legacy path: handshake headers from the owner account's cookie.
+  Future<Map<String, String>> _resolveHandshakeHeaders(
+      RemoteConnectionParams params, Device device) async {
+    final account = _resolveAccount(params, device);
+    if (account != null) {
+      final headers =
+          await sessionAuth.handshakeHeadersForAccount(account.id, params.relayWsUri);
+      if (headers.isNotEmpty) return headers;
+    }
+    return sessionAuth.handshakeHeaders(params.relayWsUri);
+  }
+
+  /// v4 path: exchange the OWNER account's JWT for a one-shot relay token.
+  /// Falls back to the legacy host-keyed JWT for pre-migration data.
+  Future<String?> _resolveRelayToken(
+      RemoteConnectionParams params, Device device) async {
+    final host = params.source.host;
+    if (!params.uriSchemeIsSecure) {
+      throw const RelayTokenException(
+        'relay-unavailable',
+        'Relay requires TLS.',
+      );
+    }
+    final account = _resolveAccount(params, device);
+    if (account != null) {
+      final jwt = await sessionAuth.jwtForAccount(account.id);
+      if (jwt != null && jwt.isNotEmpty) {
+        return issueTerminalRelayToken(
+          origin: Uri(scheme: 'https', host: host),
+          jwt: jwt,
+        );
+      }
+    }
+    return issueTerminalRelayTokenForHost(
+      host: host,
+      secure: params.uriSchemeIsSecure,
+    );
+  }
   late final MessageScheduler _scheduler = MessageScheduler(
     store: _scheduled,
     devices: _store,
@@ -74,16 +121,24 @@ class _ZicAppState extends State<ZicApp> {
     _theme.load();
     _ui.load();
     _scheduled.load();
-    unawaited(_store.load().then((_) {
-      HomeWidgetBridge.syncDevices(_store.devices);
-      _deferPlatformInit();
-    }));
+    unawaited(_bootstrapStores());
     // Pure-Dart only: safe before the first frame.
     _scheduler.start();
     _notifications.onTap = _handleNotificationTap;
     _hub.addListener(_syncNotifyHub);
     _syncNotifyHub();
     _notifyHub.start();
+  }
+
+  /// Accounts first (the device migration needs the registry), then the
+  /// device list, then the one-time owner back-fill for pre-multi-user
+  /// devices. Any completion path syncs the home widget and platform init.
+  Future<void> _bootstrapStores() async {
+    await _accounts.load();
+    await _store.load();
+    await migrateDeviceOwners(_store, _accounts);
+    HomeWidgetBridge.syncDevices(_store.devices);
+    _deferPlatformInit();
   }
 
   /// One-shot, post-frame platform init: notifications, home widget,
@@ -134,6 +189,7 @@ class _ZicAppState extends State<ZicApp> {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => TaskListPage(
           store: _store,
+          accounts: _accounts,
           hub: _hub,
           device: device,
           theme: _theme,
@@ -225,6 +281,7 @@ class _ZicAppState extends State<ZicApp> {
               ),
           home: DevicesPage(
             store: _store,
+            accounts: _accounts,
             theme: _theme,
             ui: _ui,
             hub: _hub,

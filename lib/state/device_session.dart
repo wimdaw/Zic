@@ -2182,12 +2182,15 @@ class DeviceSessionHub extends ChangeNotifier {
   });
 
   /// Resolves relay handshake headers per device (legacy v3 cookie path).
-  final Future<Map<String, String>> Function(RemoteConnectionParams params)?
-      relayHeaderProvider;
+  /// Receives the [Device] so multi-user builds can route the owner's
+  /// account credentials.
+  final Future<Map<String, String>> Function(
+      RemoteConnectionParams params, Device device)? relayHeaderProvider;
 
   /// Mints the relay v2 terminal token for a device's host. Null result
-  /// means the user still has to sign in.
-  final Future<String?> Function(RemoteConnectionParams params)?
+  /// means the user still has to sign in. Receives the [Device] so
+  /// multi-user builds can route the owner's account credentials.
+  final Future<String?> Function(RemoteConnectionParams params, Device device)?
       relayTokenProvider;
 
   DeviceSession? sessionOf(String deviceId) => _sessions[deviceId];
@@ -2227,9 +2230,10 @@ class DeviceSessionHub extends ChangeNotifier {
       onWorkspaceOpened: (key) => _lastWorkspaceKey[device.id] = key,
       handshakeHeaderProvider: relayHeaderProvider == null
           ? null
-          : () => relayHeaderProvider!(params),
-      relayTokenProvider:
-          relayTokenProvider == null ? null : () => relayTokenProvider!(params),
+          : () => relayHeaderProvider!(params, device),
+      relayTokenProvider: relayTokenProvider == null
+          ? null
+          : () => relayTokenProvider!(params, device),
       connectGate: connectGate,
     );
   }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/session_auth.dart';
 import '../protocol/conversation.dart';
+import '../state/account_store.dart';
 import '../state/app_kv.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
@@ -14,7 +15,7 @@ import 'automations_page.dart';
 import 'chat/chat_page.dart';
 import 'desktop_settings_page.dart';
 import 'device_usage_page.dart';
-import 'login_page.dart' show runLoginFlow;
+import 'login_page.dart' show runLoginFlowForHost;
 import 'model_providers_page.dart';
 import 'off_peak_page.dart';
 import 'phase_pill.dart';
@@ -33,6 +34,10 @@ class TaskListPage extends StatefulWidget {
   final Device device;
   final ThemeController? theme;
 
+  /// Multi-user: routes the login capture into the device's owning
+  /// account. Optional for compatibility (null = legacy host-keyed save).
+  final AccountStore? accounts;
+
   /// Test seam: overrides `hub.sessionOf(device.id)` when set.
   @visibleForTesting
   final DeviceSession? sessionOverride;
@@ -49,6 +54,7 @@ class TaskListPage extends StatefulWidget {
     required this.hub,
     required this.device,
     this.theme,
+    this.accounts,
     this.sessionOverride,
     this.initialPaneSessionId,
     this.initialPaneTitle,
@@ -2224,7 +2230,20 @@ class _TaskListPageState extends State<TaskListPage> {
   Future<void> _openLogin() async {
     final params = widget.device.params;
     if (params == null) return;
-    final ok = await runLoginFlow(context, params);
+    final host = params.source.host;
+    final accounts = widget.accounts;
+    final account =
+        accounts?.byId(widget.device.ownerAccountId) ?? accounts?.byHost(host);
+    // The captured JWT lands in this device's owning account (multi-user);
+    // without an account registry the legacy host-keyed save applies.
+    final ok = await runLoginFlowForHost(
+      context,
+      host,
+      accountId: account?.id,
+      onSaveJwt: (accounts == null || account == null)
+          ? null
+          : (jwt) => accounts.upsertFromLogin(host: host, jwt: jwt),
+    );
     if (!ok || !mounted) return;
     final session = _session;
     if (session != null) {

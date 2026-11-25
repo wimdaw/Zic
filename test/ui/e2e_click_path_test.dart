@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:zic/state/account_store.dart';
 import 'package:zic/state/device_session.dart';
 import 'package:zic/state/device_store.dart';
 import 'package:zic/state/scheduled_store.dart';
@@ -63,6 +64,7 @@ void main() {
     await tester.pumpWidget(wrap(
       DevicesPage(
         store: store,
+        accounts: AccountStore(),
         theme: ThemeController(),
         ui: ui,
         hub: hub,

@@ -137,4 +137,75 @@ void main() {
       expect(store.devices.length, 1);
     });
   });
+
+  group('Device ownership (multi-user)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('addUrl stores the owning account', () async {
+      final store = DeviceStore();
+      await store.load();
+      final d = await store.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=a&hash=b&t=1&name=owned',
+          ownerAccountId: 'acct-1');
+      expect(d.ownerAccountId, 'acct-1');
+      // Re-adding the same desktop keeps the original owner.
+      final again = await store.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=a&hash=c&t=2&name=owned');
+      expect(again.id, d.id);
+      expect(again.ownerAccountId, 'acct-1');
+    });
+
+    test('owner persists across reload', () async {
+      var store = DeviceStore();
+      await store.load();
+      await store.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=a&hash=b&t=1&name=mine',
+          ownerAccountId: 'acct-9');
+
+      store = DeviceStore();
+      await store.load();
+      expect(store.devices.single.ownerAccountId, 'acct-9');
+    });
+
+    test('reassignOwner moves devices and persists', () async {
+      final store = DeviceStore();
+      await store.load();
+      final d1 = await store.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=a&hash=b&t=1&name=one',
+          ownerAccountId: 'acct-old');
+      await store.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=c&hash=d&t=2&name=two',
+          ownerAccountId: 'acct-other');
+      final moved = await store.reassignOwner('acct-old', 'acct-new');
+      expect(moved, 1);
+      expect(store.devices.firstWhere((d) => d.id == d1.id).ownerAccountId,
+          'acct-new');
+      expect(
+          store.devices.firstWhere((d) => d.label == 'two').ownerAccountId,
+          'acct-other');
+
+      // Survives a reload from disk.
+      final fresh = DeviceStore();
+      await fresh.load();
+      expect(fresh.devices.firstWhere((d) => d.id == d1.id).ownerAccountId,
+          'acct-new');
+    });
+
+    test('export/import carries ownership', () async {
+      final a = DeviceStore();
+      await a.load();
+      await a.addUrl(
+          'https://zcode.z.ai/remote/v4?sid=a&hash=b&t=1&name=one',
+          ownerAccountId: 'acct-1');
+      final backup = a.exportJson();
+
+      SharedPreferences.setMockInitialValues({});
+      final b = DeviceStore();
+      await b.load();
+      await b.importJson(backup);
+      expect(b.devices.single.ownerAccountId, 'acct-1');
+    });
+  });
 }
