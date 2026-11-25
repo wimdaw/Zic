@@ -14,13 +14,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned with the project's target stable (AGP 8.x compatible).
+          flutter-version: 3.47.8
           cache: true
 
       - name: Dependencies
         run: flutter pub get
 
-      # Gate 1 — static analysis must be clean (infos non-fatal: newer
-      # Flutter flags material.dart deprecations as info).
+      # Gate 1 — static analysis must be clean (infos non-fatal).
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 

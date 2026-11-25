@@ -23,14 +23,17 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned: 3.50 requires AGP >= 9.1.1 but this project stays on
+          # AGP 8.13 on purpose (flutter_inappwebview 6.1.x is not
+          # AGP-9-compatible). 3.47.8 is the stable this codebase targets.
+          flutter-version: 3.47.8
           cache: true
 
       - name: Dependencies
         run: flutter pub get
 
       - name: Analyze
-        # --no-fatal-infos: newer Flutter flags material.dart deprecations
-        # as info; the fork builds on the latest stable.
+        # --no-fatal-infos: material.dart deprecation infos must not fail.
         run: flutter analyze --no-fatal-infos
 
       - name: Test
