@@ -82,7 +82,7 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           bt=$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)
           digest=$("$bt/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | sed -n 's/.*SHA-256 digest: //p' | head -1)
-          expected=5adf330d777e085df7fb0e374dd22b81fc9df3c4df0fd89584ad3d10da3719df
+          expected=f9c15ec45983bf9b09b354775b9383f3539a29cb7a4e047e6fcd60136f2e9947
           echo "certificate SHA-256: $digest"
           if [ "$digest" != "$expected" ]; then
             echo "::error::APK certificate does not match the published app"
