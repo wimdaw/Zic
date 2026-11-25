@@ -7,8 +7,9 @@
 const appChannel = String.fromEnvironment('APP_CHANNEL',
     defaultValue: 'github');
 
-/// The only GitHub namespace an update check may query.
-const officialUpdateRepo = 'VickyTaiziyi/Zic';
+/// The only GitHub namespace an update check may query. This build is the
+/// wimdaw fork of VickyTaiziyi/Zic, so releases come from the fork.
+const officialUpdateRepo = 'wimdaw/Zic';
 
 /// `--dart-define=GITHUB_UPDATE_REPO=` turns the check off for a local
 /// experiment. Any other value, including a different owner/name, is
@@ -22,8 +23,8 @@ String get githubUpdateRepo =>
     _definedUpdateRepo.isEmpty ? '' : officialUpdateRepo;
 
 const officialGithubProfile = 'https://github.com/VickyTaiziyi';
-const officialGithubRepo = 'https://github.com/VickyTaiziyi/Zic';
-const officialReleasesPage = 'https://github.com/VickyTaiziyi/Zic/releases';
+const officialGithubRepo = 'https://github.com/wimdaw/Zic';
+const officialReleasesPage = 'https://github.com/wimdaw/Zic/releases';
 const officialBlog = 'https://vicyi.com/';
 
 /// Latest-release API. Built only from [officialUpdateRepo].

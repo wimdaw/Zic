@@ -2232,19 +2232,26 @@ class _TaskListPageState extends State<TaskListPage> {
     if (params == null) return;
     final host = params.source.host;
     final accounts = widget.accounts;
-    final account =
-        accounts?.byId(widget.device.ownerAccountId) ?? accounts?.byHost(host);
-    // The captured JWT lands in this device's owning account (multi-user);
-    // without an account registry the legacy host-keyed save applies.
+    // The captured JWT ALWAYS lands in the account registry — a first-time
+    // login (no account yet) creates one and claims this device. The
+    // legacy host-keyed slot stays a dial-time fallback only.
+    ZicAccount? loggedIn;
     final ok = await runLoginFlowForHost(
       context,
       host,
-      accountId: account?.id,
-      onSaveJwt: (accounts == null || account == null)
+      onSaveJwt: accounts == null
           ? null
-          : (jwt) => accounts.upsertFromLogin(host: host, jwt: jwt),
+          : (jwt) async =>
+              loggedIn = await accounts.upsertFromLogin(host: host, jwt: jwt),
     );
     if (!ok || !mounted) return;
+    if (accounts != null && widget.device.ownerAccountId == null) {
+      final owner =
+          loggedIn ?? accounts.byHost(host) ?? accounts.current;
+      if (owner != null) {
+        await widget.store.assignOwner(widget.device.id, owner.id);
+      }
+    }
     final session = _session;
     if (session != null) {
       await session.reconnect();

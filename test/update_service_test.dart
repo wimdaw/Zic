@@ -60,21 +60,21 @@ Android 8.0 及以上，仅 arm64-v8a。应用不下载安装包，更新会打�
       expect(storeListingUrl, isNull);
     });
 
-    test('update API is pinned to the official repository', () {
+    test('update API is pinned to this build\'s repository', () {
       expect(githubUpdateRepo, officialUpdateRepo);
       expect(githubUpdateCheckEnabled, isTrue);
       expect(officialLatestReleaseApi.scheme, 'https');
       expect(officialLatestReleaseApi.host, 'api.github.com');
       expect(
         officialLatestReleaseApi.path,
-        '/repos/VickyTaiziyi/Zic/releases/latest',
+        '/repos/wimdaw/Zic/releases/latest',
       );
     });
   });
 
   group('official apk url', () {
     const good =
-        'https://github.com/VickyTaiziyi/Zic/releases/download/v1.0.15/zic-1.0.15-arm64.apk';
+        'https://github.com/wimdaw/Zic/releases/download/v1.0.22/zic-1.0.22-arm64.apk';
 
     test('accepts this repository\'s release asset', () {
       expect(officialApkDownloadUrl(good), good);
@@ -83,15 +83,16 @@ Android 8.0 及以上，仅 arm64-v8a。应用不下载安装包，更新会打�
 
     test('rejects anything that is not that asset', () {
       const rejected = [
-        'http://github.com/VickyTaiziyi/Zic/releases/download/v1/a.apk',
-        'https://github.com.evil/VickyTaiziyi/Zic/releases/download/v1/a.apk',
-        'https://objects.githubusercontent.com/VickyTaiziyi/Zic/a.apk',
-        'https://user@github.com/VickyTaiziyi/Zic/releases/download/v1/a.apk',
+        'http://github.com/wimdaw/Zic/releases/download/v1/a.apk',
+        'https://github.com.evil/wimdaw/Zic/releases/download/v1/a.apk',
+        'https://objects.githubusercontent.com/wimdaw/Zic/a.apk',
+        'https://user@github.com/wimdaw/Zic/releases/download/v1/a.apk',
         'https://github.com/other/Zic/releases/download/v1/a.apk',
-        'https://github.com/VickyTaiziyi/Zic/releases/download/v1/a.exe',
-        'https://github.com/VickyTaiziyi/Zic/releases/download/v1/a.apk?x=1',
-        'https://github.com/VickyTaiziyi/Zic/releases/download/v1/a.apk#frag',
-        'https://github.com/VickyTaiziyi/Zic/releases/latest',
+        'https://github.com/VickyTaiziyi/Zic/releases/download/v1/a.apk',
+        'https://github.com/wimdaw/Zic/releases/download/v1/a.exe',
+        'https://github.com/wimdaw/Zic/releases/download/v1/a.apk?x=1',
+        'https://github.com/wimdaw/Zic/releases/download/v1/a.apk#frag',
+        'https://github.com/wimdaw/Zic/releases/latest',
         'https://github.com/zic-app/zic/releases/download/v1/a.apk',
       ];
       for (final url in rejected) {
@@ -146,7 +147,7 @@ Android 8.0 及以上，仅 arm64-v8a。应用不下载安装包，更新会打�
     test('privacy names only the pinned update endpoint', () {
       final zh = privacyBlocks(false).map((b) => b.body).join('\n');
       expect(zh, contains(
-          'https://api.github.com/repos/VickyTaiziyi/Zic/releases/latest'));
+          'https://api.github.com/repos/wimdaw/Zic/releases/latest'));
       expect(zh, contains('不会发给开发者'));
     });
 

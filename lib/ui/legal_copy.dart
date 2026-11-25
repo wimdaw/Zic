@@ -21,7 +21,7 @@ List<LegalBlock> privacyBlocks(bool en) {
         heading: 'Where it connects',
       ),
       LegalBlock(
-        'Update checks request only https://api.github.com/repos/VickyTaiziyi/Zic/releases/latest. Zic does not download or install the package. Download opens the system browser on this repository\'s GitHub releases page, or on a download address that matches that repository.',
+        'Update checks request only https://api.github.com/repos/wimdaw/Zic/releases/latest. Zic does not download or install the package. Download opens the system browser on this repository\'s GitHub releases page, or on a download address that matches that repository.',
         heading: 'Updates',
       ),
       LegalBlock(
@@ -45,7 +45,7 @@ List<LegalBlock> privacyBlocks(bool en) {
       heading: '会连接哪里',
     ),
     LegalBlock(
-      '检查更新只请求 https://api.github.com/repos/VickyTaiziyi/Zic/releases/latest。Zic 自己不下载、也不安装安装包。点下载会交给系统浏览器，打开本仓库的 GitHub 发布页，或与该仓库匹配的下载地址。',
+      '检查更新只请求 https://api.github.com/repos/wimdaw/Zic/releases/latest。Zic 自己不下载、也不安装安装包。点下载会交给系统浏览器，打开本仓库的 GitHub 发布页，或与该仓库匹配的下载地址。',
       heading: '检查更新',
     ),
     LegalBlock('相机只在你扫描配对二维码时使用。', heading: '相机'),

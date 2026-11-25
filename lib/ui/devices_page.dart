@@ -23,7 +23,7 @@ import 'ui_settings.dart';
 
 /// Keep in sync with pubspec.yaml `version`. A const (not PackageInfo) so
 /// the blocked card can show it without any platform call.
-const appDisplayVersion = '1.0.12';
+const appDisplayVersion = '1.0.22';
 
 /// Home: the device list with live native status. Tap a card to open the
 /// native task list (or WebView fallback), long-term management via the
@@ -798,8 +798,6 @@ class _DevicesPageState extends State<DevicesPage>
         .toList();
     final first = needing.first;
     final host = first.params!.source.host;
-    final account = widget.accounts.byId(first.ownerAccountId) ??
-        widget.accounts.byHost(host);
     final text = needing.length > 1
         ? trP(context, 'home.authNotice.multi', ['${needing.length}'])
         : tr(context, 'home.authNotice');
@@ -835,22 +833,37 @@ class _DevicesPageState extends State<DevicesPage>
                 visualDensity: VisualDensity.compact,
               ),
               onPressed: () async {
+                // Always land the captured JWT in the account registry —
+                // even for the very first login when no account exists yet
+                // (scan-first, login-later flow). The legacy host-keyed
+                // slot stays as a dial-time fallback only.
+                ZicAccount? loggedIn;
                 final ok = await runLoginFlowForHost(
                   context,
                   host,
-                  accountId: account?.id,
-                  onSaveJwt: account == null
-                      ? null
-                      : (jwt) => widget.accounts
-                          .upsertFromLogin(host: host, jwt: jwt),
+                  onSaveJwt: (jwt) async {
+                    loggedIn = await widget.accounts
+                        .upsertFromLogin(host: host, jwt: jwt);
+                  },
                 );
                 if (!ok || !mounted) return;
+                final owner = loggedIn ??
+                    widget.accounts.byHost(host) ??
+                    widget.accounts.current;
+                // Claim ownerless devices on this host for the account
+                // that just signed in.
+                for (final d in widget.store.devices) {
+                  if (d.ownerAccountId == null &&
+                      owner != null &&
+                      d.params?.source.host == host) {
+                    await widget.store.assignOwner(d.id, owner.id);
+                  }
+                }
                 for (final d in devices) {
-                  final owns = account != null
-                      ? (d.ownerAccountId == account.id ||
+                  final owns = owner != null &&
+                      (d.ownerAccountId == owner.id ||
                           (d.ownerAccountId == null &&
-                              d.params?.source.host == host))
-                      : d.params?.source.host == host;
+                              d.params?.source.host == host));
                   if (owns) widget.hub.sessionOf(d.id)?.reconnect();
                 }
               },

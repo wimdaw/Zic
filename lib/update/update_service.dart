@@ -91,7 +91,7 @@ Future<UpdateInfo> checkForUpdatesFromGithub(String currentVersion) async {
 String updateOpenUrl({String? apkUrl}) =>
     officialApkDownloadUrl(apkUrl) ?? officialReleasesPage;
 
-/// `https://github.com/VickyTaiziyi/Zic/releases/download/<tag>/<file>.apk`
+/// `https://github.com/wimdaw/Zic/releases/download/<tag>/<file>.apk`
 /// with no userinfo, query, or fragment. Anything else returns null.
 String? officialApkDownloadUrl(String? raw) {
   if (raw == null || raw.isEmpty) return null;
@@ -104,7 +104,7 @@ String? officialApkDownloadUrl(String? raw) {
   if (uri.port != 443 && uri.hasPort) return null;
   final segs = uri.pathSegments;
   if (segs.length != 6) return null;
-  if (segs[0] != 'VickyTaiziyi' || segs[1] != 'Zic') return null;
+  if (segs[0] != 'wimdaw' || segs[1] != 'Zic') return null;
   if (segs[2] != 'releases' || segs[3] != 'download') return null;
   if (!_safeSegment(segs[4]) || !_safeApkFile(segs[5])) return null;
   return uri.toString();
